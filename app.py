@@ -28,21 +28,30 @@ def kayit_sil(isim):
             json.dump(kayitlar, f, ensure_ascii=False, indent=4)
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Cam Kesim Optimizasyonu", layout="wide")
-st.title("🔮 Cam Kesim & Görsel Yerleşim Masası")
+st.set_page_config(page_title="Cam Kesim İstasyonu", layout="wide")
+st.title("🔮 İnteraktif Cam Kesim ve Palet Dizilim İstasyonu")
 
 if 'df_cam' not in st.session_state:
     st.session_state.df_cam = pd.DataFrame({"En (cm)": [0.0], "Boy (cm)": [0.0], "Adet": [0]})
 
-# --- AYARLAR ---
+# --- SOL MENÜ AYARLAR ---
 with st.sidebar:
-    st.header("⚙️ Plaka Ayarları")
-    st.info("Cam kesiminde testere payı yoktur (Elmas payı sıfır kabul edilir).")
-    L_w = st.number_input("Ana Plaka Genişliği / En (cm)", value=321.0, step=1.0)
-    L_h = st.number_input("Ana Plaka Yüksekliği / Boy (cm)", value=225.0, step=1.0)
+    st.header("⚙️ Palet Ayarları")
+    
+    # Cam Cinsi Seçimi
+    cam_turleri = {
+        "Düz Cam": (321.0, 225.0),
+        "Füme Cam": (321.0, 225.0),
+        "Ayna": (321.0, 225.0)
+    }
+    cam_secimi = st.selectbox("Cam Cinsi", list(cam_turleri.keys()))
+    varsayilan_w, varsayilan_h = cam_turleri[cam_secimi]
+    
+    L_w = st.number_input("Ana Plaka Genişliği / En (cm)", value=varsayilan_w, step=1.0)
+    L_h = st.number_input("Ana Plaka Yüksekliği / Boy (cm)", value=varsayilan_h, step=1.0)
     
     st.divider()
-    rotation_aktif = st.checkbox("Camları Döndürmeye İzin Ver (90°)", value=True)
+    rotation_aktif = st.checkbox("Algoritma Camları Döndürebilsin (90°)", value=True)
     
     st.divider()
     st.header("📂 Kayıtlı İşler")
@@ -82,7 +91,7 @@ with col_kaydet:
 st.write("---")
 
 # --- HESAPLAMA MOTORU ---
-if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
+if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="primary"):
     df_temiz = df_giris[(df_giris["En (cm)"] > 0) & (df_giris["Boy (cm)"] > 0) & (df_giris["Adet"] > 0)].copy()
     
     if df_temiz.empty:
@@ -92,7 +101,7 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
             all_pieces = []
             for _, row in df_temiz.iterrows():
                 for _ in range(int(row["Adet"])):
-                    all_pieces.append({"w": row["En (cm)"], "h": row["Boy (cm)"], "label": f"{row['En (cm)']}x{row['Boy (cm)']}"})
+                    all_pieces.append({"w": row["En (cm)"], "h": row["Boy (cm)"]})
             
             # Akıllı Döndürme
             if rotation_aktif:
@@ -109,113 +118,178 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                 for plate in plates:
                     for shelf in plate["shelves"]:
                         if shelf["x_used"] + w <= L_w and h <= shelf["height"]:
-                            plate["items"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": w, "h": h, "label": piece["label"]})
+                            plate["items"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": w, "h": h})
                             shelf["x_used"] += w
                             placed = True; break
                         elif rotation_aktif and shelf["x_used"] + h <= L_w and w <= shelf["height"]:
-                            plate["items"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": h, "h": w, "label": piece["label"]})
+                            plate["items"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": h, "h": w})
                             shelf["x_used"] += h
                             placed = True; break
                     if placed: break
                     
                     if plate["y_used"] + h <= L_h and w <= L_w:
                         new_shelf = {"y_start": plate["y_used"], "height": h, "x_used": w}
-                        plate["items"].append({"x": 0, "y": plate["y_used"], "w": w, "h": h, "label": piece["label"]})
+                        plate["items"].append({"x": 0, "y": plate["y_used"], "w": w, "h": h})
                         plate["shelves"].append(new_shelf)
                         plate["y_used"] += h
                         placed = True; break
                     elif rotation_aktif and plate["y_used"] + w <= L_h and h <= L_w:
                         new_shelf = {"y_start": plate["y_used"], "height": w, "x_used": h}
-                        plate["items"].append({"x": 0, "y": plate["y_used"], "w": h, "h": w, "label": piece["label"]})
+                        plate["items"].append({"x": 0, "y": plate["y_used"], "w": h, "h": w})
                         plate["shelves"].append(new_shelf)
                         plate["y_used"] += w
                         placed = True; break
                 
                 if not placed:
-                    new_plate = {"shelves": [], "y_used": 0, "items": []}
+                    new_plate = {"shelves": [], "y_used": 0, "items": [], "waste": []}
                     if w <= L_w and h <= L_h:
                         new_shelf = {"y_start": 0, "height": h, "x_used": w}
-                        new_plate["items"].append({"x": 0, "y": 0, "w": w, "h": h, "label": piece["label"]})
+                        new_plate["items"].append({"x": 0, "y": 0, "w": w, "h": h})
                         new_plate["shelves"].append(new_shelf)
                         new_plate["y_used"] += h
                         plates.append(new_plate)
                     elif rotation_aktif and h <= L_w and w <= L_h:
                         new_shelf = {"y_start": 0, "height": w, "x_used": h}
-                        new_plate["items"].append({"x": 0, "y": 0, "w": h, "h": w, "label": piece["label"]})
+                        new_plate["items"].append({"x": 0, "y": 0, "w": h, "h": w})
                         new_plate["shelves"].append(new_shelf)
                         new_plate["y_used"] += w
                         plates.append(new_plate)
                     else:
-                        st.error(f"❌ Hata: {piece['label']} ölçüsü {L_w}x{L_h} ana plakadan büyük!")
+                        st.error(f"❌ Hata: {w}x{h} ölçüsü ana plakadan büyük!")
                         st.stop()
             
+            # Fire (Kalan Boşluk) Hesaplama
+            for plate in plates:
+                for shelf in plate["shelves"]:
+                    waste_w = round(L_w - shelf["x_used"], 1)
+                    if waste_w > 0:
+                        plate["waste"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": waste_w, "h": shelf["height"]})
+                waste_h = round(L_h - plate["y_used"], 1)
+                if waste_h > 0:
+                    plate["waste"].append({"x": 0, "y": plate["y_used"], "w": L_w, "h": waste_h})
+
             st.success(f"✅ Cam Kesim Haritası Hazır! Toplam Plaka: {len(plates)} Adet")
-            st.info("💡 BİLGİ: Aşağıdaki haritada cam parçalarının üzerine tıklayıp parmağınla (veya fareyle) sürükleyerek elmasla daha rahat keseceğin hizada yeniden düzenleyebilirsin!")
+            st.info("💡 BİLGİ: Seçtiğin camı döndürmek için üstteki 🔄 butonuna bas. Sürüklerken diğer camlara veya köşelere mıknatıs gibi yapışacaktır!")
             
-            # İNTERAKTİF SÜRÜKLE-BIRAK (DRAG & DROP) EKRANI
+            # İNTERAKTİF HTML MIKNATISLI EKRAN
             for idx, plate in enumerate(plates):
                 st.subheader(f"🔍 Plaka {idx+1}")
                 
-                # HTML/CSS/JS ile Sürükle Bırak Motoru
                 html_code = f"""
                 <!DOCTYPE html>
                 <html>
                 <head>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <style>
-                  body {{ margin: 0; padding: 0; font-family: sans-serif; background: transparent; }}
+                  body {{ margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; }}
+                  .toolbar {{
+                      background-color: #f1faee; border: 2px solid #a8dadc; border-radius: 5px;
+                      padding: 10px; margin-bottom: 10px; text-align: center;
+                  }}
+                  .rotate-btn {{
+                      background-color: #1d3557; color: white; border: none; border-radius: 5px;
+                      padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer;
+                      box-shadow: 2px 2px 5px rgba(0,0,0,0.3); transition: 0.2s;
+                  }}
+                  .rotate-btn:hover {{ background-color: #457b9d; transform: scale(1.05); }}
+                  .rotate-btn:active {{ transform: scale(0.95); }}
                   .plate-wrapper {{
-                      position: relative;
-                      width: 100%;
-                      padding-bottom: {(L_h / L_w) * 100}%; /* Orantıyı korur */
-                      background-color: #2b2b2b;
-                      border: 3px solid #1e1e1e;
-                      border-radius: 4px;
-                      touch-action: none; /* Mobilde kaydırmayı engeller */
-                      overflow: hidden;
+                      position: relative; width: 100%; padding-bottom: {(L_h / L_w) * 100}%;
+                      background-color: #2b2b2b; border: 3px solid #1e1e1e; box-sizing: border-box;
+                      touch-action: none; overflow: hidden;
                   }}
                   .piece {{
-                      position: absolute;
-                      background-color: rgba(42, 157, 143, 0.85);
-                      border: 1px solid #fff;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      color: white;
-                      font-weight: bold;
-                      font-size: 14px;
-                      cursor: grab;
-                      user-select: none;
-                      box-sizing: border-box;
-                      box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
-                      transition: background-color 0.1s;
+                      position: absolute; background-color: rgba(42, 157, 143, 0.9);
+                      border: 1px solid #fff; display: flex; align-items: center; justify-content: center;
+                      color: white; font-weight: bold; font-size: 14px; text-align: center; line-height: 1.2;
+                      cursor: grab; user-select: none; box-sizing: border-box; transition: box-shadow 0.2s;
                   }}
+                  .piece.selected {{ box-shadow: 0px 0px 15px 5px #e63946; z-index: 999; border: 2px solid #fff; }}
                   .piece:active {{ cursor: grabbing; }}
-                  /* Çok küçük parçalarda yazıyı küçült */
-                  @media (max-width: 500px) {{ .piece {{ font-size: 10px; }} }}
+                  
+                  .waste {{
+                      position: absolute; background: repeating-linear-gradient(45deg, #444, #444 10px, #555 10px, #555 20px);
+                      border: 2px dashed #888; display: flex; align-items: center; justify-content: center;
+                      color: #ccc; font-weight: bold; font-size: 12px; text-align: center; line-height: 1.2;
+                      box-sizing: border-box; pointer-events: none; opacity: 0.7; z-index: 0;
+                  }}
+                  
+                  @media (max-width: 600px) {{ .piece, .waste {{ font-size: 10px; }} }}
                 </style>
                 </head>
                 <body>
-                <div class="plate-wrapper" id="plate">
+                
+                <div class="toolbar">
+                    <button class="rotate-btn" onclick="rotateSelected()">🔄 Seçili Camı Döndür (90°)</button>
+                    <span style="display:block; font-size:12px; color:#333; margin-top:5px;">(Döndürmek için plakadaki camın üstüne bir kez tıkla ve seç, sonra bu tuşa bas)</span>
+                </div>
+
+                <div class="plate-wrapper" id="plate" data-pw="{L_w}" data-ph="{L_h}">
                 """
                 
-                # Parçaları Yüzdelik Oranlarla Ekleme (Telefona tam otursun diye)
+                # FİRELERİ ÇİZİM
+                for w_item in plate.get("waste", []):
+                    left_pct = (w_item["x"] / L_w) * 100
+                    top_pct = (w_item["y"] / L_h) * 100
+                    w_pct = (w_item["w"] / L_w) * 100
+                    h_pct = (w_item["h"] / L_h) * 100
+                    html_code += f'<div class="waste" style="left:{left_pct}%; top:{top_pct}%; width:{w_pct}%; height:{h_pct}%;">FİRE<br>↔ {w_item["w"]}<br>↕ {w_item["h"]}</div>'
+
+                # CAMLARI ÇİZİM
                 for item in plate["items"]:
                     left_pct = (item["x"] / L_w) * 100
                     top_pct = (item["y"] / L_h) * 100
                     w_pct = (item["w"] / L_w) * 100
                     h_pct = (item["h"] / L_h) * 100
-                    
-                    html_code += f'<div class="piece" style="left:{left_pct}%; top:{top_pct}%; width:{w_pct}%; height:{h_pct}%;">{item["label"]}</div>'
+                    html_code += f'<div class="piece" style="left:{left_pct}%; top:{top_pct}%; width:{w_pct}%; height:{h_pct}%;" data-w="{item["w"]}" data-h="{item["h"]}" onclick="selectPiece(this)">↔ {item["w"]}<br>↕ {item["h"]}</div>'
                 
                 html_code += """
                 </div>
                 <script>
                   let dragged = null;
+                  let selected = null;
                   let startX, startY, startLeft, startTop;
 
+                  function selectPiece(el) {
+                      if (selected) { selected.classList.remove('selected'); }
+                      selected = el;
+                      selected.classList.add('selected');
+                  }
+
+                  function rotateSelected() {
+                      if (!selected) { alert("Lütfen önce tablodan döndürmek istediğiniz cama tıklayarak seçin!"); return; }
+                      
+                      let plateW = parseFloat(document.getElementById('plate').getAttribute('data-pw'));
+                      let plateH = parseFloat(document.getElementById('plate').getAttribute('data-ph'));
+                      
+                      let oldW = parseFloat(selected.getAttribute('data-w'));
+                      let oldH = parseFloat(selected.getAttribute('data-h'));
+                      
+                      let newW = oldH;
+                      let newH = oldW;
+                      
+                      let newW_pct = (newW / plateW) * 100;
+                      let newH_pct = (newH / plateH) * 100;
+                      
+                      let currentLeft = parseFloat(selected.style.left) || 0;
+                      let currentTop = parseFloat(selected.style.top) || 0;
+                      
+                      // Plakadan dışarı taşıyorsa içeri it
+                      if (currentLeft + newW_pct > 100) currentLeft = 100 - newW_pct;
+                      if (currentTop + newH_pct > 100) currentTop = 100 - newH_pct;
+                      
+                      selected.setAttribute('data-w', newW);
+                      selected.setAttribute('data-h', newH);
+                      selected.style.width = newW_pct + "%";
+                      selected.style.height = newH_pct + "%";
+                      selected.style.left = currentLeft + "%";
+                      selected.style.top = currentTop + "%";
+                      selected.innerHTML = "↔ " + newW + "<br>↕ " + newH;
+                  }
+
                   function startDrag(e) {
-                      if(e.target.className !== 'piece') return;
+                      if(!e.target.classList.contains('piece')) return;
+                      selectPiece(e.target);
                       dragged = e.target;
                       let clientX = e.touches ? e.touches[0].clientX : e.clientX;
                       let clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -224,7 +298,6 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                       startLeft = parseFloat(dragged.style.left) || 0;
                       startTop = parseFloat(dragged.style.top) || 0;
                       dragged.style.zIndex = 1000;
-                      dragged.style.backgroundColor = "rgba(231, 111, 81, 0.9)"; // Tutunca turuncu olur
                   }
 
                   function drag(e) {
@@ -241,14 +314,40 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
 
                       let newLeft = startLeft + dxPercent;
                       let newTop = startTop + dyPercent;
-
-                      // Plakadan dışarı taşmayı engelle
+                      
                       let wPercent = parseFloat(dragged.style.width);
                       let hPercent = parseFloat(dragged.style.height);
-                      if(newLeft < 0) newLeft = 0;
-                      if(newTop < 0) newTop = 0;
-                      if(newLeft + wPercent > 100) newLeft = 100 - wPercent;
-                      if(newTop + hPercent > 100) newTop = 100 - hPercent;
+
+                      // --- SNAP (MIKNATIS) SİSTEMİ ---
+                      let snapThreshold = 1.5; // %1.5 yakınlaşınca yapışır
+                      let pieces = document.querySelectorAll('.piece');
+                      let newRight = newLeft + wPercent;
+                      let newBottom = newTop + hPercent;
+                      
+                      // 1. Kenarlara Yapışma
+                      if (newLeft < snapThreshold) newLeft = 0;
+                      if (newTop < snapThreshold) newTop = 0;
+                      if (100 - newRight < snapThreshold) newLeft = 100 - wPercent;
+                      if (100 - newBottom < snapThreshold) newTop = 100 - hPercent;
+
+                      // 2. Diğer Camlara Yapışma
+                      pieces.forEach(p => {
+                          if(p === dragged) return;
+                          let pLeft = parseFloat(p.style.left);
+                          let pTop = parseFloat(p.style.top);
+                          let pRight = pLeft + parseFloat(p.style.width);
+                          let pBottom = pTop + parseFloat(p.style.height);
+
+                          // Yatay Mıknatıs
+                          if (Math.abs(newLeft - pRight) < snapThreshold) newLeft = pRight;
+                          if (Math.abs(newRight - pLeft) < snapThreshold) newLeft = pLeft - wPercent;
+                          if (Math.abs(newLeft - pLeft) < snapThreshold) newLeft = pLeft;
+
+                          // Dikey Mıknatıs
+                          if (Math.abs(newTop - pBottom) < snapThreshold) newTop = pBottom;
+                          if (Math.abs(newBottom - pTop) < snapThreshold) newTop = pTop - hPercent;
+                          if (Math.abs(newTop - pTop) < snapThreshold) newTop = pTop;
+                      });
 
                       dragged.style.left = newLeft + '%';
                       dragged.style.top = newTop + '%';
@@ -256,18 +355,15 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
 
                   function endDrag(e) {
                       if (dragged) {
-                          dragged.style.zIndex = 1;
-                          dragged.style.backgroundColor = "rgba(42, 157, 143, 0.85)"; // Bırakınca yeşile döner
+                          dragged.style.zIndex = '';
                           dragged = null;
                       }
                   }
 
-                  // Mouse Eventleri (Bilgisayar İçin)
                   document.addEventListener('mousedown', startDrag);
                   document.addEventListener('mousemove', drag);
                   document.addEventListener('mouseup', endDrag);
 
-                  // Dokunmatik Eventleri (Telefon/Tablet İçin)
                   document.addEventListener('touchstart', startDrag, {passive: false});
                   document.addEventListener('touchmove', drag, {passive: false});
                   document.addEventListener('touchend', endDrag);
@@ -276,6 +372,5 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                 </html>
                 """
                 
-                # Iframe yüksekliğini plaka oranına göre tahmini olarak hesaplama
-                estimated_height = int(700 * (L_h / L_w))
-                components.html(html_code, height=estimated_height + 20)
+                estimated_height = int(700 * (L_h / L_w)) + 80
+                components.html(html_code, height=estimated_height)
