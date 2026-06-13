@@ -26,7 +26,7 @@ def kayit_sil(isim):
         with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
             json.dump(kayitlar, f, ensure_ascii=False, indent=4)
 
-# Geometrik hesaplamalar için yardımcı fonksiyonlar
+# Geometrik Parçalama Motoru (Yeni Yapay Zekâ)
 def filter_engulfed(rects):
     res = []
     rects = sorted(rects, key=lambda r: r['w'] * r['h'], reverse=True)
@@ -44,7 +44,7 @@ def filter_engulfed(rects):
 st.set_page_config(page_title="Cam Kesim İstasyonu", layout="wide")
 st.title("🔮 İnteraktif Cam Kesim İstasyonu")
 
-# Hafıza değişkenleri (Ayarların otomatik güncellenmesi için)
+# Hafıza değişkenleri
 if "cam_cinsi" not in st.session_state: st.session_state.cam_cinsi = "Düz Cam"
 if "plaka_w" not in st.session_state: st.session_state.plaka_w = 321.0
 if "plaka_h" not in st.session_state: st.session_state.plaka_h = 225.0
@@ -54,7 +54,6 @@ if 'df_cam' not in st.session_state:
 # --- SOL MENÜ AYARLAR ---
 with st.sidebar:
     st.header("⚙️ Palet Ayarları")
-    
     cam_turleri = ["Düz Cam", "Füme Cam", "Ayna"]
     cinsi_idx = cam_turleri.index(st.session_state.cam_cinsi) if st.session_state.cam_cinsi in cam_turleri else 0
     cam_secimi = st.selectbox("Cam Cinsi", cam_turleri, index=cinsi_idx, key="cinsi_widget")
@@ -65,15 +64,15 @@ with st.sidebar:
     st.divider()
     rotation_aktif = st.checkbox("Algoritma Camları Döndürebilsin (90°)", value=True)
     
-    st.subheader("Fire (Çöp) Kuralları")
-    fire_kural_aktif = st.checkbox("Fire Boyut Kuralı Uygula", value=False)
+    # YENİ: KATI FİRE KURALLARI
+    st.subheader("⚠️ Katı Fire Kuralları")
+    fire_kural_aktif = st.checkbox("İstenmeyen Fire Ölçülerini Yasakla", value=False)
     if fire_kural_aktif:
-        min_fire = st.number_input("Bu ölçüden BÜYÜK fire yasak (Örn: 10)", value=10.0)
-        max_fire = st.number_input("Bu ölçüden KÜÇÜK fire yasak (Örn: 40)", value=40.0)
-        st.info(f"💡 Sistem, boşlukların {min_fire}cm ile {max_fire}cm arasında kalmamasına çalışacaktır.")
+        min_fire = st.number_input("Bu ölçüden BÜYÜK fire YASAK (Örn: 10)", value=10.0)
+        max_fire = st.number_input("Bu ölçüden KÜÇÜK fire YASAK (Örn: 40)", value=40.0)
+        st.info("💡 Sistem, hem EN hem de BOY olarak bu aralıkta fire bırakmamak için gerekirse yeni plaka açacaktır.")
     else:
-        min_fire = 0
-        max_fire = 0
+        min_fire, max_fire = 0.0, 0.0
     
     st.divider()
     st.header("📂 Kayıtlı İşler")
@@ -105,36 +104,33 @@ df_giris = st.data_editor(st.session_state.df_cam, num_rows="dynamic", use_conta
 # KAYDETME
 st.write("---")
 col_isim, col_kaydet = st.columns([3, 1])
-with col_isim:
-    kayit_ismi = st.text_input("Bu listeyi kaydetmek istersen isim ver:")
+with col_isim: kayit_ismi = st.text_input("Bu listeyi kaydetmek istersen isim ver:")
 with col_kaydet:
-    st.write("") 
-    st.write("")
+    st.write(""); st.write("")
     if st.button("💾 Bilgileri Kaydet", use_container_width=True):
         if kayit_ismi:
             df_gecerli = df_giris[(df_giris["En (cm)"] > 0) & (df_giris["Boy (cm)"] > 0) & (df_giris["Adet"] > 0)]
             palette_info = {"cinsi": cam_secimi, "w": L_w, "h": L_h}
             kayit_ekle(kayit_ismi, df_gecerli.to_dict('records'), palette_info)
             st.success("Liste ve Palet Ayarları kaydedildi!")
-        else:
-            st.warning("İsim girmelisiniz.")
+        else: st.warning("İsim girmelisiniz.")
 st.write("---")
 
-# --- HESAPLAMA MOTORU (MAXIMAL RECTANGLES ALGORITHM - ÇOK DAHA AZ PLAKA YAKAR) ---
+# --- HESAPLAMA MOTORU (MİNİMUM PLAKA ALGORİTMASI) ---
 if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
     df_temiz = df_giris[(df_giris["En (cm)"] > 0) & (df_giris["Boy (cm)"] > 0) & (df_giris["Adet"] > 0)].copy()
     
     if df_temiz.empty:
         st.warning("Lütfen geçerli cam ölçüleri girin.")
     else:
-        with st.spinner("Yapay Zekâ Motoru çalışıyor, camlar sıfır fire hedeflenerek diziliyor..."):
+        with st.spinner("Yapay Zekâ Motoru çalışıyor, camlar tetris gibi paketleniyor..."):
             all_pieces = []
             for _, row in df_temiz.iterrows():
                 for _ in range(int(row["Adet"])):
                     all_pieces.append({"w": row["En (cm)"], "h": row["Boy (cm)"]})
             
-            # En büyük parçaları ilk yerleştirmek paketlemeyi kusursuzlaştırır
-            all_pieces.sort(key=lambda x: x["w"] * x["h"], reverse=True)
+            # En büyük parçaları önce yerleştirerek plaka israfını sıfırlıyoruz
+            all_pieces.sort(key=lambda x: max(x["w"], x["h"]), reverse=True)
             
             plates = []
             for piece in all_pieces:
@@ -143,28 +139,57 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                 best_rotated = False
                 best_score = float('inf')
 
+                # Önce mevcut plakalara sığdırmaya çalış
                 for i, plate in enumerate(plates):
                     for fr in plate['free_rects']:
-                        # Normal Kontrol
+                        # Normal Yön
                         if piece['w'] <= fr['w'] + 0.01 and piece['h'] <= fr['h'] + 0.01:
-                            score = min(fr['w'] - piece['w'], fr['h'] - piece['h'])
+                            rem_w = fr['w'] - piece['w']
+                            rem_h = fr['h'] - piece['h']
+                            score = min(rem_w, rem_h)
                             if fire_kural_aktif:
-                                if min_fire < (fr['w'] - piece['w']) < max_fire: score += 10000
-                                if min_fire < (fr['h'] - piece['h']) < max_fire: score += 10000
+                                if min_fire < rem_w < max_fire: score += 1000000
+                                if min_fire < rem_h < max_fire: score += 1000000
                             if score < best_score:
                                 best_score = score; best_rect = fr; best_rotated = False; best_plate_idx = i
 
-                        # Döndürülmüş Kontrol
+                        # Döndürülmüş Yön
                         if rotation_aktif and piece['h'] <= fr['w'] + 0.01 and piece['w'] <= fr['h'] + 0.01:
-                            score = min(fr['w'] - piece['h'], fr['h'] - piece['w'])
+                            rem_w = fr['w'] - piece['h']
+                            rem_h = fr['h'] - piece['w']
+                            score = min(rem_w, rem_h)
                             if fire_kural_aktif:
-                                if min_fire < (fr['w'] - piece['h']) < max_fire: score += 10000
-                                if min_fire < (fr['h'] - piece['w']) < max_fire: score += 10000
+                                if min_fire < rem_w < max_fire: score += 1000000
+                                if min_fire < rem_h < max_fire: score += 1000000
                             if score < best_score:
                                 best_score = score; best_rect = fr; best_rotated = True; best_plate_idx = i
 
+                # Yepyeni bir plaka açmanın maliyeti (Fire yasağına takılırsa yeni plaka açmayı tercih eder)
+                new_score_n = float('inf')
+                new_score_r = float('inf')
+                if piece['w'] <= L_w and piece['h'] <= L_h:
+                    s_n = min(L_w - piece['w'], L_h - piece['h'])
+                    if fire_kural_aktif:
+                        if min_fire < (L_w - piece['w']) < max_fire: s_n += 1000000
+                        if min_fire < (L_h - piece['h']) < max_fire: s_n += 1000000
+                    s_n += 400000 # Yeni plaka açma maliyeti (Cezadan düşük)
+                    new_score_n = s_n
+
+                if rotation_aktif and piece['h'] <= L_w and piece['w'] <= L_h:
+                    s_r = min(L_w - piece['h'], L_h - piece['w'])
+                    if fire_kural_aktif:
+                        if min_fire < (L_w - piece['h']) < max_fire: s_r += 1000000
+                        if min_fire < (L_h - piece['w']) < max_fire: s_r += 1000000
+                    s_r += 400000
+                    new_score_r = s_r
+
+                # Eğer yeni plaka açmak, mevcut plakada fire yasağı yemekten daha avantajlıysa, yeni plaka aç!
+                best_new = min(new_score_n, new_score_r)
+                if best_new < best_score:
+                    best_plate_idx = -1
+                    best_rotated = new_score_r < new_score_n
+
                 if best_plate_idx != -1:
-                    # Mevcut plakaya sığdı
                     pw, ph = (piece['h'], piece['w']) if best_rotated else (piece['w'], piece['h'])
                     px, py = best_rect['x'], best_rect['y']
                     target_plate = plates[best_plate_idx]
@@ -181,15 +206,8 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                             new_free.append(fr)
                     target_plate['free_rects'] = filter_engulfed(new_free)
                 else:
-                    # Yeni Plaka Aç
                     new_plate = {'items': [], 'free_rects': [{'x': 0, 'y': 0, 'w': L_w, 'h': L_h}]}
-                    pw, ph = piece['w'], piece['h']
-                    if not (pw <= L_w and ph <= L_h):
-                        if rotation_aktif and (ph <= L_w and pw <= L_h): pw, ph = ph, pw
-                        else:
-                            st.error(f"❌ Hata: {pw}x{ph} ölçüsü {L_w}x{L_h} plakaya hiçbir şekilde sığmıyor!")
-                            st.stop()
-
+                    pw, ph = (piece['h'], piece['w']) if best_rotated else (piece['w'], piece['h'])
                     new_plate['items'].append({'x': 0, 'y': 0, 'w': pw, 'h': ph})
                     new_free = []
                     if pw < L_w: new_free.append({'x': pw, 'y': 0, 'w': L_w - pw, 'h': L_h})
@@ -197,11 +215,10 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                     new_plate['free_rects'] = filter_engulfed(new_free)
                     plates.append(new_plate)
 
-            st.success(f"✅ Akıllı Yerleşim Tamamlandı! Toplam Kullanılan Plaka: {len(plates)} Adet")
+            st.success(f"✅ Paketleme Tamamlandı! Toplam Kullanılan Plaka: {len(plates)} Adet")
             
             job_id_name = kayit_ismi if kayit_ismi else "gecici_islem"
             
-            # --- TEK PARÇA DEV İNTERAKTİF HTML & KUSURSUZ YÜKSEKLİK ---
             html_code = f"""
             <!DOCTYPE html>
             <html>
@@ -376,8 +393,8 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                           freeRects.sort((a,b) => b.area - a.area);
                           
                           let best = freeRects.shift();
-                          // Minik yolluk firelerini de göstermesi için limiti düşürdük
-                          if (best.r - best.l < 3 || best.b - best.t < 3) continue;
+                          // Minik yolluk firelerini bile çizgili gösterebilmek için alt sınırı çok düşürdük
+                          if (best.r - best.l < 1 || best.b - best.t < 1) continue;
                           
                           finalWaste.push(best);
                           
@@ -401,9 +418,20 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                           div.className = 'waste';
                           div.style.left = ((w.l / plateW) * 100) + '%';
                           div.style.top = ((w.t / plateH) * 100) + '%';
-                          div.style.width = (((w.r - w.l) / plateW) * 100) + '%';
-                          div.style.height = (((w.b - w.t) / plateH) * 100) + '%';
-                          div.innerHTML = 'FİRE<br>↔ ' + (w.r - w.l).toFixed(1) + '<br>↕ ' + (w.b - w.t).toFixed(1);
+                          
+                          let wasteW = w.r - w.l;
+                          let wasteH = w.b - w.t;
+                          
+                          div.style.width = ((wasteW / plateW) * 100) + '%';
+                          div.style.height = ((wasteH / plateH) * 100) + '%';
+                          
+                          // 5 cm'den küçük firelere sadece taralı alan atıyoruz, yazıyla kalabalık etmiyoruz!
+                          if (wasteW >= 5 && wasteH >= 5) {{
+                              div.innerHTML = 'FİRE<br>↔ ' + wasteW.toFixed(1) + '<br>↕ ' + wasteH.toFixed(1);
+                          }} else {{
+                              div.innerHTML = ''; 
+                          }}
+                          
                           plateDiv.appendChild(div);
                       }});
                   }});
@@ -515,7 +543,7 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
             </html>
             """
             
-            # Kesilmeyi kökten çözen dinamik net yükseklik hesabı
+            # Dinamik yükseklik: Kesilmeyi kökten çözen formül
             plaka_h_px = (L_h / L_w) * 900
             toplam_yukseklik = 150 + len(plates) * (plaka_h_px + 70)
             components.html(html_code, height=int(toplam_yukseklik))
