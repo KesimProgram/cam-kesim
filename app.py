@@ -204,7 +204,8 @@ with tab2:
     with col_ck1:
         c_kayit_ismi = st.text_input("Bu cam işine isim ver (Örn: Cam Kapak):", key="c_name")
     with col_ck2:
-        st.write(" ") st.write(" ")
+        st.write(" ") 
+        st.write(" ")
         if st.button("💾 Camı Kaydet", use_container_width=True, key="c_save_btn"):
             if c_kayit_ismi:
                 df_gecerli_cam = df_cam_giris[(df_cam_giris["En (cm)"] > 0) & (df_cam_giris["Boy (cm)"] > 0) & (df_cam_giris["Adet"] > 0)]
