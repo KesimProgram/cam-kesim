@@ -26,14 +26,28 @@ def kayit_sil(isim):
         with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
             json.dump(kayitlar, f, ensure_ascii=False, indent=4)
 
+# Geometrik hesaplamalar için yardımcı fonksiyonlar
+def filter_engulfed(rects):
+    res = []
+    rects = sorted(rects, key=lambda r: r['w'] * r['h'], reverse=True)
+    for r in rects:
+        is_inside = False
+        for o in res:
+            if r['x'] >= o['x'] - 0.01 and r['y'] >= o['y'] - 0.01 and r['x'] + r['w'] <= o['x'] + o['w'] + 0.01 and r['y'] + r['h'] <= o['y'] + o['h'] + 0.01:
+                is_inside = True
+                break
+        if not is_inside:
+            res.append(r)
+    return res
+
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Cam Kesim İstasyonu", layout="wide")
 st.title("🔮 İnteraktif Cam Kesim İstasyonu")
 
-# Hafıza değişkenleri (Yükleme yapıldığında otomatik değişmesi için)
-if "selected_cinsi" not in st.session_state: st.session_state.selected_cinsi = "Düz Cam"
-if "selected_w" not in st.session_state: st.session_state.selected_w = 321.0
-if "selected_h" not in st.session_state: st.session_state.selected_h = 225.0
+# Hafıza değişkenleri (Ayarların otomatik güncellenmesi için)
+if "cam_cinsi" not in st.session_state: st.session_state.cam_cinsi = "Düz Cam"
+if "plaka_w" not in st.session_state: st.session_state.plaka_w = 321.0
+if "plaka_h" not in st.session_state: st.session_state.plaka_h = 225.0
 if 'df_cam' not in st.session_state:
     st.session_state.df_cam = pd.DataFrame({"En (cm)": [0.0], "Boy (cm)": [0.0], "Adet": [0]})
 
@@ -42,14 +56,24 @@ with st.sidebar:
     st.header("⚙️ Palet Ayarları")
     
     cam_turleri = ["Düz Cam", "Füme Cam", "Ayna"]
-    cinsi_idx = cam_turleri.index(st.session_state.selected_cinsi) if st.session_state.selected_cinsi in cam_turleri else 0
-    cam_secimi = st.selectbox("Cam Cinsi", cam_turleri, index=cinsi_idx)
+    cinsi_idx = cam_turleri.index(st.session_state.cam_cinsi) if st.session_state.cam_cinsi in cam_turleri else 0
+    cam_secimi = st.selectbox("Cam Cinsi", cam_turleri, index=cinsi_idx, key="cinsi_widget")
     
-    L_w = st.number_input("Ana Plaka Genişliği / En (cm)", value=st.session_state.selected_w, step=1.0)
-    L_h = st.number_input("Ana Plaka Yüksekliği / Boy (cm)", value=st.session_state.selected_h, step=1.0)
+    L_w = st.number_input("Ana Plaka Genişliği / En (cm)", value=st.session_state.plaka_w, step=1.0, key="w_widget")
+    L_h = st.number_input("Ana Plaka Yüksekliği / Boy (cm)", value=st.session_state.plaka_h, step=1.0, key="h_widget")
     
     st.divider()
     rotation_aktif = st.checkbox("Algoritma Camları Döndürebilsin (90°)", value=True)
+    
+    st.subheader("Fire (Çöp) Kuralları")
+    fire_kural_aktif = st.checkbox("Fire Boyut Kuralı Uygula", value=False)
+    if fire_kural_aktif:
+        min_fire = st.number_input("Bu ölçüden BÜYÜK fire yasak (Örn: 10)", value=10.0)
+        max_fire = st.number_input("Bu ölçüden KÜÇÜK fire yasak (Örn: 40)", value=40.0)
+        st.info(f"💡 Sistem, boşlukların {min_fire}cm ile {max_fire}cm arasında kalmamasına çalışacaktır.")
+    else:
+        min_fire = 0
+        max_fire = 0
     
     st.divider()
     st.header("📂 Kayıtlı İşler")
@@ -60,12 +84,11 @@ with st.sidebar:
         with col1:
             if st.button("📂 Yükle", use_container_width=True) and secilen_kayit != "Seçiniz...":
                 data = mevcut_kayitlar[secilen_kayit]
-                # Eski sürüm kayıtları veya yeni sürüm kayıtları ayırma
                 if isinstance(data, dict) and "list" in data:
                     st.session_state.df_cam = pd.DataFrame(data["list"])
-                    st.session_state.selected_cinsi = data.get("palette", {}).get("cinsi", "Düz Cam")
-                    st.session_state.selected_w = data.get("palette", {}).get("w", 321.0)
-                    st.session_state.selected_h = data.get("palette", {}).get("h", 225.0)
+                    st.session_state.cam_cinsi = data.get("palette", {}).get("cinsi", "Düz Cam")
+                    st.session_state.plaka_w = float(data.get("palette", {}).get("w", 321.0))
+                    st.session_state.plaka_h = float(data.get("palette", {}).get("h", 225.0))
                 else:
                     st.session_state.df_cam = pd.DataFrame(data)
                 st.rerun()
@@ -97,80 +120,88 @@ with col_kaydet:
             st.warning("İsim girmelisiniz.")
 st.write("---")
 
-# --- HESAPLAMA MOTORU ---
+# --- HESAPLAMA MOTORU (MAXIMAL RECTANGLES ALGORITHM - ÇOK DAHA AZ PLAKA YAKAR) ---
 if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
     df_temiz = df_giris[(df_giris["En (cm)"] > 0) & (df_giris["Boy (cm)"] > 0) & (df_giris["Adet"] > 0)].copy()
     
     if df_temiz.empty:
         st.warning("Lütfen geçerli cam ölçüleri girin.")
     else:
-        with st.spinner("Camlar plakaya diziliyor..."):
+        with st.spinner("Yapay Zekâ Motoru çalışıyor, camlar sıfır fire hedeflenerek diziliyor..."):
             all_pieces = []
             for _, row in df_temiz.iterrows():
                 for _ in range(int(row["Adet"])):
                     all_pieces.append({"w": row["En (cm)"], "h": row["Boy (cm)"]})
             
-            if rotation_aktif:
-                for p in all_pieces:
-                    if p["w"] < p["h"]: p["w"], p["h"] = p["h"], p["w"]
-            
-            all_pieces.sort(key=lambda x: x["h"], reverse=True)
+            # En büyük parçaları ilk yerleştirmek paketlemeyi kusursuzlaştırır
+            all_pieces.sort(key=lambda x: x["w"] * x["h"], reverse=True)
             
             plates = []
             for piece in all_pieces:
-                w, h = piece["w"], piece["h"]
-                placed = False
-                
-                for plate in plates:
-                    for shelf in plate["shelves"]:
-                        if shelf["x_used"] + w <= L_w and h <= shelf["height"]:
-                            plate["items"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": w, "h": h})
-                            shelf["x_used"] += w
-                            placed = True; break
-                        elif rotation_aktif and shelf["x_used"] + h <= L_w and w <= shelf["height"]:
-                            plate["items"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": h, "h": w})
-                            shelf["x_used"] += h
-                            placed = True; break
-                    if placed: break
-                    
-                    if plate["y_used"] + h <= L_h and w <= L_w:
-                        new_shelf = {"y_start": plate["y_used"], "height": h, "x_used": w}
-                        plate["items"].append({"x": 0, "y": plate["y_used"], "w": w, "h": h})
-                        plate["shelves"].append(new_shelf)
-                        plate["y_used"] += h
-                        placed = True; break
-                    elif rotation_aktif and plate["y_used"] + w <= L_h and h <= L_w:
-                        new_shelf = {"y_start": plate["y_used"], "height": w, "x_used": h}
-                        plate["items"].append({"x": 0, "y": plate["y_used"], "w": h, "h": w})
-                        plate["shelves"].append(new_shelf)
-                        plate["y_used"] += w
-                        placed = True; break
-                
-                if not placed:
-                    new_plate = {"shelves": [], "y_used": 0, "items": []}
-                    if w <= L_w and h <= L_h:
-                        new_shelf = {"y_start": 0, "height": h, "x_used": w}
-                        new_plate["items"].append({"x": 0, "y": 0, "w": w, "h": h})
-                        new_plate["shelves"].append(new_shelf)
-                        new_plate["y_used"] += h
-                        plates.append(new_plate)
-                    elif rotation_aktif and h <= L_w and w <= L_h:
-                        new_shelf = {"y_start": 0, "height": w, "x_used": h}
-                        new_plate["items"].append({"x": 0, "y": 0, "w": h, "h": w})
-                        new_plate["shelves"].append(new_shelf)
-                        new_plate["y_used"] += w
-                        plates.append(new_plate)
-                    else:
-                        st.error(f"❌ Hata: {w}x{h} ölçüsü {L_w}x{L_h} ana plakadan büyük!")
-                        st.stop()
+                best_plate_idx = -1
+                best_rect = None
+                best_rotated = False
+                best_score = float('inf')
 
-            st.success(f"✅ Kesim Haritası Hazır! Toplam Plaka: {len(plates)} Adet")
-            
-            # --- TEK PARÇA DEV İNTERAKTİF HTML ---
-            # Artık tüm plakalar tek bir pencerede toplanıyor ki PDF ve Kayıt sistemi sorunsuz çalışsın.
+                for i, plate in enumerate(plates):
+                    for fr in plate['free_rects']:
+                        # Normal Kontrol
+                        if piece['w'] <= fr['w'] + 0.01 and piece['h'] <= fr['h'] + 0.01:
+                            score = min(fr['w'] - piece['w'], fr['h'] - piece['h'])
+                            if fire_kural_aktif:
+                                if min_fire < (fr['w'] - piece['w']) < max_fire: score += 10000
+                                if min_fire < (fr['h'] - piece['h']) < max_fire: score += 10000
+                            if score < best_score:
+                                best_score = score; best_rect = fr; best_rotated = False; best_plate_idx = i
+
+                        # Döndürülmüş Kontrol
+                        if rotation_aktif and piece['h'] <= fr['w'] + 0.01 and piece['w'] <= fr['h'] + 0.01:
+                            score = min(fr['w'] - piece['h'], fr['h'] - piece['w'])
+                            if fire_kural_aktif:
+                                if min_fire < (fr['w'] - piece['h']) < max_fire: score += 10000
+                                if min_fire < (fr['h'] - piece['w']) < max_fire: score += 10000
+                            if score < best_score:
+                                best_score = score; best_rect = fr; best_rotated = True; best_plate_idx = i
+
+                if best_plate_idx != -1:
+                    # Mevcut plakaya sığdı
+                    pw, ph = (piece['h'], piece['w']) if best_rotated else (piece['w'], piece['h'])
+                    px, py = best_rect['x'], best_rect['y']
+                    target_plate = plates[best_plate_idx]
+                    target_plate['items'].append({'x': px, 'y': py, 'w': pw, 'h': ph})
+
+                    new_free = []
+                    for fr in target_plate['free_rects']:
+                        if not (px >= fr['x'] + fr['w'] or px + pw <= fr['x'] or py >= fr['y'] + fr['h'] or py + ph <= fr['y']):
+                            if px > fr['x']: new_free.append({'x': fr['x'], 'y': fr['y'], 'w': px - fr['x'], 'h': fr['h']})
+                            if px + pw < fr['x'] + fr['w']: new_free.append({'x': px + pw, 'y': fr['y'], 'w': fr['x'] + fr['w'] - (px + pw), 'h': fr['h']})
+                            if py > fr['y']: new_free.append({'x': fr['x'], 'y': fr['y'], 'w': fr['w'], 'h': py - fr['y']})
+                            if py + ph < fr['y'] + fr['h']: new_free.append({'x': fr['x'], 'y': py + ph, 'w': fr['w'], 'h': fr['y'] + fr['h'] - (py + ph)})
+                        else:
+                            new_free.append(fr)
+                    target_plate['free_rects'] = filter_engulfed(new_free)
+                else:
+                    # Yeni Plaka Aç
+                    new_plate = {'items': [], 'free_rects': [{'x': 0, 'y': 0, 'w': L_w, 'h': L_h}]}
+                    pw, ph = piece['w'], piece['h']
+                    if not (pw <= L_w and ph <= L_h):
+                        if rotation_aktif and (ph <= L_w and pw <= L_h): pw, ph = ph, pw
+                        else:
+                            st.error(f"❌ Hata: {pw}x{ph} ölçüsü {L_w}x{L_h} plakaya hiçbir şekilde sığmıyor!")
+                            st.stop()
+
+                    new_plate['items'].append({'x': 0, 'y': 0, 'w': pw, 'h': ph})
+                    new_free = []
+                    if pw < L_w: new_free.append({'x': pw, 'y': 0, 'w': L_w - pw, 'h': L_h})
+                    if ph < L_h: new_free.append({'x': 0, 'y': ph, 'w': L_w, 'h': L_h - ph})
+                    new_plate['free_rects'] = filter_engulfed(new_free)
+                    plates.append(new_plate)
+
+            st.success(f"✅ Akıllı Yerleşim Tamamlandı! Toplam Kullanılan Plaka: {len(plates)} Adet")
             
             job_id_name = kayit_ismi if kayit_ismi else "gecici_islem"
             
+            # --- TEK PARÇA DEV İNTERAKTİF HTML & KUSURSUZ YÜKSEKLİK ---
             html_code = f"""
             <!DOCTYPE html>
             <html>
@@ -181,8 +212,8 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
               body {{ margin: 0; padding: 0; font-family: sans-serif; background: transparent; padding-bottom: 50px; }}
               .toolbar {{
                   background-color: #f1faee; border: 2px solid #a8dadc; border-radius: 5px;
-                  padding: 15px; margin-bottom: 20px; text-align: center; width: 100%; display: flex;
-                  justify-content: center; gap: 10px; flex-wrap: wrap;
+                  padding: 15px; margin-bottom: 20px; text-align: center; width: 900px; max-width: 100%; margin-left: auto; margin-right: auto;
+                  display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
               }}
               .action-btn {{
                   color: white; border: none; border-radius: 5px; padding: 10px 15px; font-size: 15px; font-weight: bold; cursor: pointer;
@@ -196,11 +227,14 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
               .pdf-btn {{ background-color: #e63946; }}
               .pdf-btn:hover {{ background-color: #d62828; }}
               
-              .plate-title {{ font-size: 22px; font-weight: bold; color: #333; margin: 20px 0 5px 0; font-family: sans-serif; }}
+              .plate-title {{ font-size: 22px; font-weight: bold; color: #333; margin: 20px auto 5px auto; font-family: sans-serif; width: 900px; max-width: 100%; }}
+              
+              /* KESİLMEYİ ÖNLEYEN SABİT PİKSEL GENİŞLİK */
               .plate-wrapper {{
-                  position: relative; width: 100%; padding-bottom: {(L_h / L_w) * 100}%;
-                  background-color: #2b2b2b; border: 4px solid #1e1e1e; box-sizing: content-box;
-                  touch-action: none; overflow: hidden; border-radius: 4px; margin-bottom: 30px;
+                  position: relative; width: 900px; max-width: 100%; height: {(L_h / L_w) * 900}px;
+                  margin: 0 auto 30px auto;
+                  background-color: #2b2b2b; border: 4px solid #1e1e1e;
+                  touch-action: none; overflow: hidden; border-radius: 4px;
               }}
               .piece {{
                   position: absolute; background-color: rgba(42, 157, 143, 0.95);
@@ -218,7 +252,6 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                   pointer-events: none; opacity: 0.9; z-index: 1;
               }}
               
-              /* PDF VE YAZDIRMA AYARLARI */
               @media print {{
                   body {{ background: white !important; margin: 0; padding: 0; }}
                   .no-print {{ display: none !important; }}
@@ -228,8 +261,6 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                   .plate-title {{ color: black; }}
                   .piece.selected {{ box-shadow: none !important; border: 1px solid black !important; }}
               }}
-              
-              @media (max-width: 600px) {{ .piece, .waste {{ font-size: 10px; }} }}
             </style>
             </head>
             <body>
@@ -238,17 +269,16 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                 <button class="action-btn rotate-btn" onclick="rotateSelected()">🔄 Seçili Camı Döndür</button>
                 <button class="action-btn save-btn" onclick="saveLayout()">💾 Yerleşimi Tarayıcıya Kaydet</button>
                 <button class="action-btn pdf-btn" onclick="window.print()">🖨️ PDF Al / Yazdır</button>
-                <div style="width:100%; font-size:12px; color:#555; margin-top:5px;">(Seçimi bırakmak için gri fire alanlarına tıklayabilirsin)</div>
+                <div style="width:100%; font-size:12px; color:#555; margin-top:5px;">(Seçimi bırakmak için gri fire alanlarına veya boşluğa tıklayabilirsin)</div>
             </div>
             """
             
-            # TÜM PLAKALARI TEK DÖNGÜDE HTML İÇİNE YAZDIRMA
             for p_idx, plate in enumerate(plates):
                 html_code += f'<div class="plate-title">Plaka {p_idx+1} ({L_w}x{L_h} cm) - {cam_secimi}</div>'
                 html_code += f'<div class="plate-wrapper" id="plate_{p_idx}" data-pw="{L_w}" data-ph="{L_h}">'
                 
                 for i_idx, item in enumerate(plate["items"]):
-                    p_id = f"piece_{p_idx}_{i_idx}" # Eşsiz kimlik oluşturduk ki kaydederken bulalım
+                    p_id = f"piece_{p_idx}_{i_idx}"
                     left_pct = (item["x"] / L_w) * 100
                     top_pct = (item["y"] / L_h) * 100
                     w_pct = (item["w"] / L_w) * 100
@@ -257,7 +287,6 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                 
                 html_code += '</div>'
             
-            # JAVASCRIPT MOTORU
             html_code += f"""
             <script>
               let dragged = null;
@@ -265,7 +294,6 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
               let startX, startY, startLeft, startTop;
               let jobKey = "cam_layout_{job_id_name}";
 
-              // --- BOŞ YERE TIKLAYINCA SEÇİMİ İPTAL ETME ---
               document.addEventListener('mousedown', function(e) {{
                   if (!e.target.classList.contains('piece') && selected) {{
                       selected.classList.remove('selected');
@@ -279,7 +307,6 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                   }}
               }}, {{passive: true}});
 
-              // --- MANUEL YERLEŞİMİ KAYDETME VE YÜKLEME ---
               function saveLayout() {{
                   let layout = [];
                   document.querySelectorAll('.piece').forEach(p => {{
@@ -291,7 +318,7 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                       }});
                   }});
                   localStorage.setItem(jobKey, JSON.stringify(layout));
-                  alert("Dizilim tarayıcı hafızasına kaydedildi! Sayfayı yenilediğinizde (veya Yükle dediğinizde) camlar aynen bıraktığınız gibi gelecektir.");
+                  alert("Dizilim tarayıcıya kaydedildi! Programı kapatıp açsanız veya 'Yükle' deseniz bile, bu iş ismiyle camlar tam bıraktığınız yerde açılacak.");
               }}
 
               function loadLayout() {{
@@ -310,7 +337,6 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                   }}
               }}
 
-              // --- KUSURSUZ (ÇOKLU) FİRE BÖLÜCÜ MOTOR ---
               function updateWaste() {{
                   document.querySelectorAll('.plate-wrapper').forEach(plateDiv => {{
                       plateDiv.querySelectorAll('.waste').forEach(e => e.remove());
@@ -350,7 +376,7 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                           freeRects.sort((a,b) => b.area - a.area);
                           
                           let best = freeRects.shift();
-                          if (best.area < 15) continue;
+                          // Minik yolluk firelerini de göstermesi için limiti düşürdük
                           if (best.r - best.l < 3 || best.b - best.t < 3) continue;
                           
                           finalWaste.push(best);
@@ -481,15 +507,15 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
               document.addEventListener('touchend', endDrag);
               
               window.onload = function() {{
-                  loadLayout(); // Varsa kayıtlı dizilimi geri yükler
-                  setTimeout(updateWaste, 100); // Fireleri anında hesaplar
+                  loadLayout(); 
+                  setTimeout(updateWaste, 100); 
               }};
             </script>
             </body>
             </html>
             """
             
-            # Dinamik yüksekliği tüm plakalara yetecek şekilde ayarlıyoruz.
-            # Kesik çıkma sorunu burada çözülüyor!
-            toplam_yukseklik = 150 + len(plates) * ((L_h / L_w) * 850 + 120)
+            # Kesilmeyi kökten çözen dinamik net yükseklik hesabı
+            plaka_h_px = (L_h / L_w) * 900
+            toplam_yukseklik = 150 + len(plates) * (plaka_h_px + 70)
             components.html(html_code, height=int(toplam_yukseklik))
