@@ -38,13 +38,13 @@ if 'df_cam' not in st.session_state:
 with st.sidebar:
     st.header("⚙️ Palet Ayarları")
     
-    # Cam Cinsi Seçimi
+    # Cam Cinsi Seçimi (Yeni Eklendi)
     cam_turleri = {
         "Düz Cam": (321.0, 225.0),
         "Füme Cam": (321.0, 225.0),
         "Ayna": (321.0, 225.0)
     }
-    cam_secimi = st.selectbox("Cam Cinsi", list(cam_turleri.keys()))
+    cam_secimi = st.selectbox("Cam Cinsi Seçimi", list(cam_turleri.keys()))
     varsayilan_w, varsayilan_h = cam_turleri[cam_secimi]
     
     L_w = st.number_input("Ana Plaka Genişliği / En (cm)", value=varsayilan_w, step=1.0)
@@ -70,7 +70,7 @@ with st.sidebar:
                 st.rerun()
 
 # --- SİPARİŞ TABLOSU ---
-st.subheader("📋 Kesilecek Cam Ölçüleri")
+st.subheader(f"📋 Kesilecek {cam_secimi} Ölçüleri")
 df_giris = st.data_editor(st.session_state.df_cam, num_rows="dynamic", use_container_width=True)
 
 # KAYDETME
@@ -91,7 +91,7 @@ with col_kaydet:
 st.write("---")
 
 # --- HESAPLAMA MOTORU ---
-if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="primary"):
+if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
     df_temiz = df_giris[(df_giris["En (cm)"] > 0) & (df_giris["Boy (cm)"] > 0) & (df_giris["Adet"] > 0)].copy()
     
     if df_temiz.empty:
@@ -141,7 +141,7 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                         placed = True; break
                 
                 if not placed:
-                    new_plate = {"shelves": [], "y_used": 0, "items": [], "waste": []}
+                    new_plate = {"shelves": [], "y_used": 0, "items": []}
                     if w <= L_w and h <= L_h:
                         new_shelf = {"y_start": 0, "height": h, "x_used": w}
                         new_plate["items"].append({"x": 0, "y": 0, "w": w, "h": h})
@@ -155,23 +155,13 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                         new_plate["y_used"] += w
                         plates.append(new_plate)
                     else:
-                        st.error(f"❌ Hata: {w}x{h} ölçüsü ana plakadan büyük!")
+                        st.error(f"❌ Hata: {w}x{h} ölçüsü {L_w}x{L_h} ana plakadan büyük!")
                         st.stop()
-            
-            # Fire (Kalan Boşluk) Hesaplama
-            for plate in plates:
-                for shelf in plate["shelves"]:
-                    waste_w = round(L_w - shelf["x_used"], 1)
-                    if waste_w > 0:
-                        plate["waste"].append({"x": shelf["x_used"], "y": shelf["y_start"], "w": waste_w, "h": shelf["height"]})
-                waste_h = round(L_h - plate["y_used"], 1)
-                if waste_h > 0:
-                    plate["waste"].append({"x": 0, "y": plate["y_used"], "w": L_w, "h": waste_h})
 
-            st.success(f"✅ Cam Kesim Haritası Hazır! Toplam Plaka: {len(plates)} Adet")
-            st.info("💡 BİLGİ: Seçtiğin camı döndürmek için üstteki 🔄 butonuna bas. Sürüklerken diğer camlara veya köşelere mıknatıs gibi yapışacaktır!")
+            st.success(f"✅ Kesim Haritası Hazır! Toplam Plaka: {len(plates)} Adet")
+            st.info("💡 BİLGİ: Camı döndürmek için üstüne tıkla ve 🔄 butonuna bas. Sürüklediğinde veya döndürdüğünde Kalan Fire (Gri alanlar) kendi kendine yeniden hesaplanıp birleşecektir!")
             
-            # İNTERAKTİF HTML MIKNATISLI EKRAN
+            # İNTERAKTİF HTML & CANLI FİRE HESAPLAMA MOTORU
             for idx, plate in enumerate(plates):
                 st.subheader(f"🔍 Plaka {idx+1}")
                 
@@ -181,37 +171,38 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                 <head>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <style>
-                  body {{ margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; }}
+                  * {{ box-sizing: border-box; }}
+                  body {{ margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; background: transparent; }}
                   .toolbar {{
                       background-color: #f1faee; border: 2px solid #a8dadc; border-radius: 5px;
-                      padding: 10px; margin-bottom: 10px; text-align: center;
+                      padding: 10px; margin-bottom: 10px; text-align: center; width: 98%; margin: 0 auto 10px auto;
                   }}
                   .rotate-btn {{
                       background-color: #1d3557; color: white; border: none; border-radius: 5px;
                       padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer;
                       box-shadow: 2px 2px 5px rgba(0,0,0,0.3); transition: 0.2s;
                   }}
-                  .rotate-btn:hover {{ background-color: #457b9d; transform: scale(1.05); }}
+                  .rotate-btn:hover {{ background-color: #457b9d; transform: scale(1.02); }}
                   .rotate-btn:active {{ transform: scale(0.95); }}
                   .plate-wrapper {{
-                      position: relative; width: 100%; padding-bottom: {(L_h / L_w) * 100}%;
-                      background-color: #2b2b2b; border: 3px solid #1e1e1e; box-sizing: border-box;
-                      touch-action: none; overflow: hidden;
+                      position: relative; width: 98%; margin: 0 auto; padding-bottom: {(L_h / L_w) * 100}%;
+                      background-color: #333333; border: 3px solid #1e1e1e;
+                      touch-action: none; overflow: hidden; border-radius: 4px;
                   }}
                   .piece {{
-                      position: absolute; background-color: rgba(42, 157, 143, 0.9);
+                      position: absolute; background-color: rgba(42, 157, 143, 0.95);
                       border: 1px solid #fff; display: flex; align-items: center; justify-content: center;
                       color: white; font-weight: bold; font-size: 14px; text-align: center; line-height: 1.2;
-                      cursor: grab; user-select: none; box-sizing: border-box; transition: box-shadow 0.2s;
+                      cursor: grab; user-select: none; transition: box-shadow 0.2s; z-index: 10;
                   }}
-                  .piece.selected {{ box-shadow: 0px 0px 15px 5px #e63946; z-index: 999; border: 2px solid #fff; }}
+                  .piece.selected {{ box-shadow: 0px 0px 0px 3px #e63946 inset; z-index: 1000; border: 2px solid #fff; background-color: rgba(69, 123, 157, 0.95); }}
                   .piece:active {{ cursor: grabbing; }}
                   
                   .waste {{
                       position: absolute; background: repeating-linear-gradient(45deg, #444, #444 10px, #555 10px, #555 20px);
-                      border: 2px dashed #888; display: flex; align-items: center; justify-content: center;
-                      color: #ccc; font-weight: bold; font-size: 12px; text-align: center; line-height: 1.2;
-                      box-sizing: border-box; pointer-events: none; opacity: 0.7; z-index: 0;
+                      border: 2px dashed #999; display: flex; align-items: center; justify-content: center;
+                      color: #ddd; font-weight: bold; font-size: 13px; text-align: center; line-height: 1.2;
+                      pointer-events: none; opacity: 0.8; z-index: 1;
                   }}
                   
                   @media (max-width: 600px) {{ .piece, .waste {{ font-size: 10px; }} }}
@@ -221,21 +212,12 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                 
                 <div class="toolbar">
                     <button class="rotate-btn" onclick="rotateSelected()">🔄 Seçili Camı Döndür (90°)</button>
-                    <span style="display:block; font-size:12px; color:#333; margin-top:5px;">(Döndürmek için plakadaki camın üstüne bir kez tıkla ve seç, sonra bu tuşa bas)</span>
                 </div>
 
                 <div class="plate-wrapper" id="plate" data-pw="{L_w}" data-ph="{L_h}">
                 """
                 
-                # FİRELERİ ÇİZİM
-                for w_item in plate.get("waste", []):
-                    left_pct = (w_item["x"] / L_w) * 100
-                    top_pct = (w_item["y"] / L_h) * 100
-                    w_pct = (w_item["w"] / L_w) * 100
-                    h_pct = (w_item["h"] / L_h) * 100
-                    html_code += f'<div class="waste" style="left:{left_pct}%; top:{top_pct}%; width:{w_pct}%; height:{h_pct}%;">FİRE<br>↔ {w_item["w"]}<br>↕ {w_item["h"]}</div>'
-
-                # CAMLARI ÇİZİM
+                # CAMLARI ÇİZİM (Fireler HTML yüklenince JS ile otomatik hesaplanacak)
                 for item in plate["items"]:
                     left_pct = (item["x"] / L_w) * 100
                     top_pct = (item["y"] / L_h) * 100
@@ -250,6 +232,72 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                   let selected = null;
                   let startX, startY, startLeft, startTop;
 
+                  // --- CANLI FİRE HESAPLAMA VE BİRLEŞTİRME MOTORU ---
+                  function updateWaste() {
+                      document.querySelectorAll('.waste').forEach(e => e.remove());
+                      let plateDiv = document.getElementById('plate');
+                      let plateW = parseFloat(plateDiv.getAttribute('data-pw'));
+                      let plateH = parseFloat(plateDiv.getAttribute('data-ph'));
+
+                      let pieces = [];
+                      document.querySelectorAll('.piece').forEach(p => {
+                          let w = parseFloat(p.getAttribute('data-w'));
+                          let h = parseFloat(p.getAttribute('data-h'));
+                          let l = (parseFloat(p.style.left) / 100) * plateW;
+                          let t = (parseFloat(p.style.top) / 100) * plateH;
+                          pieces.push({l: l, t: t, r: l+w, b: t+h});
+                      });
+
+                      // Bütün plakayı boşluk kabul et
+                      let emptyRects = [{l:0, t:0, r:plateW, b:plateH}];
+
+                      // Camların olduğu yerleri boşluklardan kesip çıkart
+                      pieces.forEach(p => {
+                          let nextEmpty = [];
+                          let eps = 0.05; // Hassasiyet
+                          emptyRects.forEach(e => {
+                              if (p.l < e.r - eps && p.r > e.l + eps && p.t < e.b - eps && p.b > e.t + eps) {
+                                  if (p.t > e.t + eps) nextEmpty.push({l: e.l, t: e.t, r: e.r, b: p.t});
+                                  if (p.b < e.b - eps) nextEmpty.push({l: e.l, t: p.b, r: e.r, b: e.b});
+                                  if (p.l > e.l + eps) nextEmpty.push({l: e.l, t: e.t, r: p.l, b: e.b});
+                                  if (p.r < e.r - eps) nextEmpty.push({l: p.r, t: e.t, r: e.r, b: e.b});
+                              } else {
+                                  nextEmpty.push(e);
+                              }
+                          });
+                          emptyRects = nextEmpty;
+                      });
+
+                      // Kalan boşlukları büyüklüğüne göre sırala
+                      emptyRects.forEach(e => { e.area = (e.r - e.l) * (e.b - e.t); });
+                      emptyRects.sort((a,b) => b.area - a.area);
+
+                      // Sadece en büyük, birbiriyle kesişmeyen dev fire alanlarını seç (Birleştirme mantığı)
+                      let finalWaste = [];
+                      emptyRects.forEach(e => {
+                          if (e.r - e.l < 3 || e.b - e.t < 3) return; // 3cm'den küçük kırıntıları yazma
+                          let overlap = false;
+                          for(let fw of finalWaste) {
+                              let ix = Math.max(0, Math.min(e.r, fw.r) - Math.max(e.l, fw.l));
+                              let iy = Math.max(0, Math.min(e.b, fw.b) - Math.max(e.t, fw.t));
+                              if (ix * iy > 1) { overlap = true; break; }
+                          }
+                          if (!overlap) finalWaste.push(e);
+                      });
+
+                      // Fireleri Ekrana Çizdir
+                      finalWaste.forEach(w => {
+                          let div = document.createElement('div');
+                          div.className = 'waste';
+                          div.style.left = ((w.l / plateW) * 100) + '%';
+                          div.style.top = ((w.t / plateH) * 100) + '%';
+                          div.style.width = (((w.r - w.l) / plateW) * 100) + '%';
+                          div.style.height = (((w.b - w.t) / plateH) * 100) + '%';
+                          div.innerHTML = 'FİRE<br>↔ ' + (w.r - w.l).toFixed(1) + '<br>↕ ' + (w.b - w.t).toFixed(1);
+                          plateDiv.appendChild(div);
+                      });
+                  }
+
                   function selectPiece(el) {
                       if (selected) { selected.classList.remove('selected'); }
                       selected = el;
@@ -257,24 +305,19 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                   }
 
                   function rotateSelected() {
-                      if (!selected) { alert("Lütfen önce tablodan döndürmek istediğiniz cama tıklayarak seçin!"); return; }
-                      
+                      if (!selected) { alert("Lütfen önce plakadaki camın üstüne tıklayarak seçin!"); return; }
                       let plateW = parseFloat(document.getElementById('plate').getAttribute('data-pw'));
                       let plateH = parseFloat(document.getElementById('plate').getAttribute('data-ph'));
                       
                       let oldW = parseFloat(selected.getAttribute('data-w'));
                       let oldH = parseFloat(selected.getAttribute('data-h'));
-                      
-                      let newW = oldH;
-                      let newH = oldW;
+                      let newW = oldH, newH = oldW;
                       
                       let newW_pct = (newW / plateW) * 100;
                       let newH_pct = (newH / plateH) * 100;
-                      
                       let currentLeft = parseFloat(selected.style.left) || 0;
                       let currentTop = parseFloat(selected.style.top) || 0;
                       
-                      // Plakadan dışarı taşıyorsa içeri it
                       if (currentLeft + newW_pct > 100) currentLeft = 100 - newW_pct;
                       if (currentTop + newH_pct > 100) currentTop = 100 - newH_pct;
                       
@@ -285,6 +328,8 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                       selected.style.left = currentLeft + "%";
                       selected.style.top = currentTop + "%";
                       selected.innerHTML = "↔ " + newW + "<br>↕ " + newH;
+                      
+                      updateWaste(); // Döndürdükten Sonra Fireyi Canlı Yenile
                   }
 
                   function startDrag(e) {
@@ -297,7 +342,6 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                       startY = clientY;
                       startLeft = parseFloat(dragged.style.left) || 0;
                       startTop = parseFloat(dragged.style.top) || 0;
-                      dragged.style.zIndex = 1000;
                   }
 
                   function drag(e) {
@@ -314,23 +358,20 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
 
                       let newLeft = startLeft + dxPercent;
                       let newTop = startTop + dyPercent;
-                      
                       let wPercent = parseFloat(dragged.style.width);
                       let hPercent = parseFloat(dragged.style.height);
 
-                      // --- SNAP (MIKNATIS) SİSTEMİ ---
-                      let snapThreshold = 1.5; // %1.5 yakınlaşınca yapışır
+                      // --- MIKNATIS (SNAP) SİSTEMİ ---
+                      let snapThreshold = 1.5; 
                       let pieces = document.querySelectorAll('.piece');
                       let newRight = newLeft + wPercent;
                       let newBottom = newTop + hPercent;
                       
-                      // 1. Kenarlara Yapışma
                       if (newLeft < snapThreshold) newLeft = 0;
                       if (newTop < snapThreshold) newTop = 0;
                       if (100 - newRight < snapThreshold) newLeft = 100 - wPercent;
                       if (100 - newBottom < snapThreshold) newTop = 100 - hPercent;
 
-                      // 2. Diğer Camlara Yapışma
                       pieces.forEach(p => {
                           if(p === dragged) return;
                           let pLeft = parseFloat(p.style.left);
@@ -338,12 +379,9 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
                           let pRight = pLeft + parseFloat(p.style.width);
                           let pBottom = pTop + parseFloat(p.style.height);
 
-                          // Yatay Mıknatıs
                           if (Math.abs(newLeft - pRight) < snapThreshold) newLeft = pRight;
                           if (Math.abs(newRight - pLeft) < snapThreshold) newLeft = pLeft - wPercent;
                           if (Math.abs(newLeft - pLeft) < snapThreshold) newLeft = pLeft;
-
-                          // Dikey Mıknatıs
                           if (Math.abs(newTop - pBottom) < snapThreshold) newTop = pBottom;
                           if (Math.abs(newBottom - pTop) < snapThreshold) newTop = pTop - hPercent;
                           if (Math.abs(newTop - pTop) < snapThreshold) newTop = pTop;
@@ -355,22 +393,27 @@ if st.button("🚀 Haritayı Çiz & Mıknatıslı Düzenlemeye Başla", type="pr
 
                   function endDrag(e) {
                       if (dragged) {
-                          dragged.style.zIndex = '';
                           dragged = null;
+                          updateWaste(); // Sürüklemeyi Bıraktığında Fireyi Canlı Yenile
                       }
                   }
 
                   document.addEventListener('mousedown', startDrag);
                   document.addEventListener('mousemove', drag);
                   document.addEventListener('mouseup', endDrag);
-
                   document.addEventListener('touchstart', startDrag, {passive: false});
                   document.addEventListener('touchmove', drag, {passive: false});
                   document.addEventListener('touchend', endDrag);
+                  
+                  // Program ilk açıldığında fireleri anında hesapla
+                  window.onload = function() {
+                      setTimeout(updateWaste, 100);
+                  };
                 </script>
                 </body>
                 </html>
                 """
                 
-                estimated_height = int(700 * (L_h / L_w)) + 80
+                # Ekrana oturtma payını artırdık ki kaydırma çubuğu çıkmasın
+                estimated_height = int(700 * (L_h / L_w)) + 120
                 components.html(html_code, height=estimated_height)
