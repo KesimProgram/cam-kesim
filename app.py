@@ -363,8 +363,8 @@ if st.button("🚀 Haritayı Çiz & Düzenlemeye Başla", type="primary"):
                               }} else {{
                                   if (r.t < sub.t) nextFree.push({{l: r.l, t: r.t, r: r.r, b: sub.t}});
                                   if (r.b > sub.b) nextFree.push({{l: r.l, t: sub.b, r: r.r, b: r.b}});
-                                  if (r.l < sub.l) nextFree.push({{l: r.l, t: Math.max(r.t, sub.t), r: sub.l, b: Math.min(r.b, sub.b)});
-                                  if (r.r > sub.r) nextFree.push({{l: sub.r, t: Math.max(r.t, sub.t), r: r.r, b: Math.min(r.b, sub.b)});
+                                  if (r.l < sub.l) nextFree.push({{l: r.l, t: Math.max(r.t, sub.t), r: sub.l, b: Math.min(r.b, sub.b)}});
+                                  if (r.r > sub.r) nextFree.push({{l: sub.r, t: Math.max(r.t, sub.t), r: r.r, b: Math.min(r.b, sub.b)}});
                               }}
                           }});
                           freeRects = nextFree;
