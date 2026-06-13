@@ -66,7 +66,8 @@ with tab1:
     with col_pk1:
         p_kayit_ismi = st.text_input("Bu profil listesine isim ver:", key="p_name")
     with col_pk2:
-        st.write(" ") st.write(" ")
+        st.write(" ") 
+        st.write(" ")
         if st.button("💾 Profili Kaydet", use_container_width=True, key="p_save_btn"):
             if p_kayit_ismi:
                 df_gecerli = df_profil_giris[(df_profil_giris["Boy (cm)"] > 0) & (df_profil_giris["Adet"] > 0)]
